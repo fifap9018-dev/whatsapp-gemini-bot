@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>لوحة بوت واتساب</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:#0b141a;color:#e9edef;min-height:100vh;display:flex;flex-direction:column}
+header{background:#202c33;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;font-weight:700}
+#dot{font-size:13px;font-weight:400;color:#8696a0}
+nav{display:flex;background:#111b21}
+nav button{flex:1;padding:12px;border:0;background:none;color:#8696a0;font-size:15px;border-bottom:3px solid transparent}
+nav button.on{color:#00a884;border-color:#00a884}
+section{display:none;flex:1;flex-direction:column;min-height:0}
+section.on{display:flex}
+.center{margin:auto;text-align:center;padding:20px}
+.center img{background:#fff;padding:10px;border-radius:12px;max-width:100%}
+.center p{color:#8696a0;line-height:1.7}
+.big{padding:12px 28px;border:0;border-radius:8px;background:#00a884;color:#fff;font-size:16px;margin-top:12px}
+.big.off{background:#b3261e}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:8px;background:#111b21}
+.chips button{flex:none;padding:8px 14px;border:0;border-radius:18px;background:#202c33;color:#e9edef}
+.chips button.on{background:#00a884}
+.msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:6px}
+.m{max-width:80%;padding:8px 12px;border-radius:10px;white-space:pre-wrap;line-height:1.5}
+.user{background:#202c33;align-self:flex-start}
+.assistant{background:#005c4b;align-self:flex-end}
+.me{background:#1d4e89;align-self:flex-end}
+.m small{display:block;opacity:.5;font-size:11px;margin-top:4px}
+.form{padding:16px}
+.form textarea{width:100%;min-height:240px;padding:12px;border-radius:8px;border:0;background:#2a3942;color:#e9edef;font-size:15px;font-family:inherit}
+.empty{margin:auto;color:#8696a0}
+</style>
+</head>
+<body>
+<header><span>🤖 لوحة بوت واتساب</span><span id="dot">...</span></header>
+<nav>
+  <button data-t="home" class="on">الحالة</button>
+  <button data-t="logs">المحادثات</button>
+  <button data-t="set">الشخصية</button>
+</nav>
+<section id="home" class="on"><div class="center" id="homeBox"></div></section>
+<section id="logs"><div class="chips" id="chips"></div><div class="msgs" id="msgs"></div></section>
+<section id="set">
+  <div class="form">
+    <p style="color:#8696a0;margin-top:0">صف الشخصية: اسمها، طريقة كلامها، اهتماماتها.</p>
+    <textarea id="persona"></textarea>
+    <button class="big" id="saveP">حفظ الشخصية</button>
+  </div>
+</section>
+<script>
+const $ = id => document.getElementById(id);
+let pass = sessionStorage.getItem('p') || '';
+let state = { ready:false, qr:null, enabled:true, chats:{} };
+let sel = null;
+async function api(url, opts = {}) {
+  opts.headers = Object.assign({'x-pass':pass,'content-type':'application/json'},opts.headers||{});
+  const r = await fetch(url,opts);
+  if (r.status === 401) {
+    pass = prompt('أدخل كلمة سر لوحة التحكم') || '';
+    sessionStorage.setItem('p',pass);
+    return api(url,opts);
+  }
+  return r.json();
+}
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button,section').forEach(e => e.classList.remove('on'));
+  b.classList.add('on'); $(b.dataset.t).classList.add('on'); draw();
+});
+function drawHome() {
+  const box=$('homeBox'); box.textContent='';
+  const mk=(tag,txt,cls)=>{const e=document.createElement(tag);if(txt)e.textContent=txt;if(cls)e.className=cls;box.appendChild(e);return e;};
+  if (!state.ready && state.qr) {
+    mk('p','افتح واتساب في هاتفك ← الأجهزة المرتبطة ← ربط جهاز، وامسح هذا الكود:');
+    const img=mk('img'); img.src=state.qr; img.width=280;
+  } else if (!state.ready) mk('p','⏳ واتساب غير متصل أو ما زال يبدأ التشغيل. حدّث الصفحة بعد قليل.');
+  else {
+    mk('h2',state.enabled?'✅ البوت يعمل':'⏸️ البوت متوقف');
+    mk('p','واتساب متصل. الرسائل النصية الواردة ستُعالج حسب الشخصية والإعدادات.');
+    const b=mk('button',state.enabled?'إيقاف البوت':'تشغيل البوت','big'+(state.enabled?' off':''));
+    b.onclick=async()=>{await api('/api/toggle',{method:'POST'});refresh();};
+  }
+}
+function drawLogs() {
+  const chips=$('chips');chips.textContent='';
+  const ids=Object.keys(state.chats||{}).sort((a,b)=>(state.chats[b].msgs.at(-1)?.t||0)-(state.chats[a].msgs.at(-1)?.t||0));
+  if(!sel||!state.chats[sel])sel=ids[0]||null;
+  ids.forEach(k=>{const b=document.createElement('button');b.textContent=state.chats[k].name;if(k===sel)b.className='on';b.onclick=()=>{sel=k;drawLogs();};chips.appendChild(b);});
+  const M=$('msgs');M.textContent='';
+  if(!sel){const e=document.createElement('div');e.className='empty';e.textContent='لا توجد محادثات بعد';M.appendChild(e);return;}
+  state.chats[sel].msgs.forEach(m=>{const d=document.createElement('div');d.className='m '+m.role;d.textContent=m.text;const s=document.createElement('small');s.textContent=(m.role==='me'?'أنت · ':m.role==='assistant'?'البوت · ':'')+new Date(m.t).toLocaleString('ar');d.appendChild(s);M.appendChild(d);});
+  M.scrollTop=M.scrollHeight;
+}
+function draw(){ $('dot').textContent=state.ready?(state.enabled?'🟢 متصل':'🟡 متوقف'):'🔴 غير متصل';if($('home').classList.contains('on'))drawHome();if($('logs').classList.contains('on'))drawLogs();}
+async function refresh(){try{state=await api('/api/state');draw();}catch(e){$('dot').textContent='🔴 السيرفر لا يرد';}}
+$('saveP').onclick=async()=>{const r=await api('/api/persona',{method:'POST',body:JSON.stringify({persona:$('persona').value})});if(r.ok)alert('تم الحفظ ✅');else alert('تعذر الحفظ');};
+api('/api/persona').then(d=>$('persona').value=d.persona||'').catch(()=>{});
+refresh();setInterval(refresh,4000);
+</script>
+</body>
+</html>
